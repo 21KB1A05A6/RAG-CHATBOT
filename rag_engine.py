@@ -65,7 +65,7 @@ class CourseRecommendationAssistant:
             model="models/gemini-embedding-001", google_api_key=api_key
         )
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash", google_api_key=api_key, temperature=0.2
+            model="gemini-2.5-flash", google_api_key=api_key, temperature=0.2
         )
         self.structured_llm = self.llm.with_structured_output(RecommendationResponse)
 
