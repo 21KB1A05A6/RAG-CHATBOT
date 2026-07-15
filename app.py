@@ -5,6 +5,22 @@ Run with:
     streamlit run app.py
 """
 
+# --- ChromaDB / sqlite3 compatibility shim -------------------------------
+# Streamlit Community Cloud's Linux image ships an old system sqlite3
+# (< 3.35), but ChromaDB requires >= 3.35. This swaps in the newer
+# pysqlite3-binary package as the sqlite3 module BEFORE anything else
+# (including chromadb, via rag_engine) gets imported. Requires
+# "pysqlite3-binary" in requirements.txt and "libsqlite3-dev" in
+# packages.txt. Safe to leave in even when running locally with a
+# modern sqlite3 — it just becomes a no-op if pysqlite3 isn't installed.
+try:
+    __import__("pysqlite3")
+    import sys
+    sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+except ImportError:
+    pass
+# ---------------------------------------------------------------------------
+
 import os
 import streamlit as st
 
