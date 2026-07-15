@@ -26,6 +26,17 @@ from courses_data import build_documents, COURSES
 from models import RecommendationResponse, SourceMetadata
 from tools import calculate_total_learning_hours, calculate_total_hours_raw
 
+# Google frequently retires Gemini model IDs. Set GEMINI_MODEL to override,
+# otherwise these are tried in order until one responds successfully.
+DEFAULT_MODEL_CANDIDATES = [
+    os.environ.get("GEMINI_MODEL"),
+    "gemini-2.5-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+]
+MODEL_CANDIDATES = [m for m in DEFAULT_MODEL_CANDIDATES if m]
+
 SYSTEM_PROMPT = """You are an expert learning advisor for a corporate training \
 catalog focused on SAP and Artificial Intelligence courses.
 
@@ -64,8 +75,12 @@ class CourseRecommendationAssistant:
         self.embeddings = GoogleGenerativeAIEmbeddings(
             model="models/gemini-embedding-001", google_api_key=api_key
         )
+
+        self._api_key = api_key
+        self._model_index = 0
+        self.current_model = MODEL_CANDIDATES[self._model_index]
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash", google_api_key=api_key, temperature=0.2
+            model=self.current_model, google_api_key=api_key, temperature=0.2
         )
         self.structured_llm = self.llm.with_structured_output(RecommendationResponse)
 
@@ -111,6 +126,34 @@ class CourseRecommendationAssistant:
                 rc.experience_level = match["experience_level"]
         return response
 
+    def _switch_to_next_model(self) -> bool:
+        """Move to the next candidate model. Returns False if none remain."""
+        if self._model_index + 1 >= len(MODEL_CANDIDATES):
+            return False
+        self._model_index += 1
+        self.current_model = MODEL_CANDIDATES[self._model_index]
+        self.llm = ChatGoogleGenerativeAI(
+            model=self.current_model, google_api_key=self._api_key, temperature=0.2
+        )
+        self.structured_llm = self.llm.with_structured_output(RecommendationResponse)
+        return True
+
+    def _invoke_with_fallback(self, messages):
+        """Try the current model; on a 404/NOT_FOUND (deprecated or
+        unavailable model), automatically retry with the next candidate in
+        MODEL_CANDIDATES rather than crashing the whole request."""
+        last_error = None
+        while True:
+            try:
+                return self.structured_llm.invoke(messages)
+            except Exception as e:
+                msg = str(e)
+                last_error = e
+                is_model_unavailable = "NOT_FOUND" in msg or "404" in msg
+                if is_model_unavailable and self._switch_to_next_model():
+                    continue
+                raise last_error
+
     def ask(self, question: str) -> RecommendationResponse:
         # 1. Retrieve relevant course context.
         docs = self.retriever.invoke(question)
@@ -120,7 +163,7 @@ class CourseRecommendationAssistant:
         messages = self.prompt.format_messages(
             context=context, history=self.history, question=question
         )
-        response: RecommendationResponse = self.structured_llm.invoke(messages)
+        response: RecommendationResponse = self._invoke_with_fallback(messages)
 
         # 3. Attach ground-truth source metadata.
         response = self._attach_sources(response)
