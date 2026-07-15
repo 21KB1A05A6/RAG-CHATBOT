@@ -62,7 +62,7 @@ class CourseRecommendationAssistant:
             )
 
         self.embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001", google_api_key=api_key
+            model="models/gemini-embedding-001", google_api_key=api_key
         )
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash", google_api_key=api_key, temperature=0.2
